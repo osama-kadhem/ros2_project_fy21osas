@@ -57,7 +57,7 @@ class RobotProject(Node):
         self.waypoint_index = 0
         self.consecutive_rejections = 0
 
-        # Waypoint covering the whole map
+        # Waypoints covering the whole map
         self.waypoints = [
             ( 0.0,   0.0,  180),
             (-1.0,  -5.0,  270),
@@ -68,15 +68,10 @@ class RobotProject(Node):
             ( 0.0,   0.0,  180),
         ]
 
-        # Created display windows once at startup
-        cv2.namedWindow('Camera Feed',    cv2.WINDOW_NORMAL)
-        cv2.namedWindow('Filtered Image', cv2.WINDOW_NORMAL)
-        cv2.resizeWindow('Camera Feed',    320, 240)
-        cv2.resizeWindow('Filtered Image', 320, 240)
-
         self.get_logger().info('RobotProject node started.')
 
     def scan_callback(self, msg):
+        # Keep only forward facing readings
         ranges = msg.ranges
         n = len(ranges)
         front_ranges = ranges[:n//6] + ranges[-n//6:]
@@ -116,7 +111,7 @@ class RobotProject(Node):
         combined_mask = cv2.bitwise_or(red_mask, cv2.bitwise_or(green_mask, blue_mask))
         filtered_img  = cv2.bitwise_and(image, image, mask=combined_mask)
 
-        # Detect and draw highlighted bounding boxes
+        # Detect and draw bounding boxes
         self.red_found,   image = self._detect_and_draw(image, red_mask,   (0, 0, 255), 'RED')
         self.green_found, image = self._detect_and_draw(image, green_mask, (0, 255, 0), 'GREEN')
         self.blue_found,  image = self._detect_and_draw(image, blue_mask,  (255, 0, 0), 'BLUE')
@@ -152,10 +147,14 @@ class RobotProject(Node):
             self.blue_area = 0
             self.blue_cx   = None
 
-        # Show windows no window creation here
+        # Show windows
+        cv2.namedWindow('Camera Feed',    cv2.WINDOW_NORMAL)
+        cv2.namedWindow('Filtered Image', cv2.WINDOW_NORMAL)
         cv2.imshow('Camera Feed',    image)
         cv2.imshow('Filtered Image', filtered_img)
-        cv2.waitKey(1)
+        cv2.resizeWindow('Camera Feed',    320, 240)
+        cv2.resizeWindow('Filtered Image', 320, 240)
+        cv2.waitKey(3)
 
     def _detect_and_draw(self, image, mask, colour_bgr, label):
         contours, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
@@ -165,24 +164,9 @@ class RobotProject(Node):
             if cv2.contourArea(c) > 300:
                 found = True
                 x, y, bw, bh = cv2.boundingRect(c)
-
-                # Draw thick bounding box
-                cv2.rectangle(image, (x, y), (x + bw, y + bh), colour_bgr, 3)
-
-                # Draw filled rectangle behind label text
-                text_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
-                text_w, text_h = text_size
-                label_y = max(y - text_h - 10, 0)
-                cv2.rectangle(image,
-                              (x, label_y),
-                              (x + text_w + 4, label_y + text_h + 8),
-                              colour_bgr, -1)
-
-                # Draw white text on coloured background
-                cv2.putText(image, label,
-                            (x + 2, label_y + text_h + 2),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-
+                cv2.rectangle(image, (x, y), (x + bw, y + bh), colour_bgr, 2)
+                cv2.putText(image, label, (x, max(y - 8, 0)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, colour_bgr, 2)
         return found, image
 
     def send_next_waypoint(self):
@@ -230,6 +214,7 @@ class RobotProject(Node):
         self.navigating = False
 
     def hard_stop(self):
+        # Publish zero velocity many times to ensure robot fully stops
         stop_msg = Twist()
         stop_msg.linear.x  = 0.0
         stop_msg.linear.y  = 0.0
@@ -248,6 +233,7 @@ class RobotProject(Node):
         self.get_logger().info(
             f'Approaching blue, area={self.blue_area:.0f}, dist={self.min_distance:.2f}m')
 
+        # Stop using laser distance
         if self.min_distance <= STOP_DISTANCE and self.blue_found:
             self.get_logger().info(
                 f'TASK COMPLETE - stopped at {self.min_distance:.2f}m from blue box!')
